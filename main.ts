@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, setTooltip, requestUrl } from 'obsidian';
+import { getIcon, App, Plugin, PluginSettingTab, Setting, setTooltip, requestUrl } from 'obsidian';
 import {
 	Decoration,
 	DecorationSet,
@@ -24,7 +24,6 @@ export default class CatalystAnalysisPlugin extends Plugin {
 
 		requestUrl(`${this.settings.apiUrl}/services`)
 			.then(data => {
-				console.log(data);
 				this.registerEditorExtension(semanticPlugin(this.settings, data.json.services as any));
 			})
 			.catch(error => {
@@ -45,40 +44,118 @@ export default class CatalystAnalysisPlugin extends Plugin {
 	}
 }
 
-export class MitreAttackWidget extends WidgetType {
+const linkRegex = new RegExp("^(https?)://");
+
+const slc = () => {		
+	const smartlinkcontainer = document.createElement("span");
+
+	smartlinkcontainer.style.cursor = "help";
+	smartlinkcontainer.style.textDecorationStyle = "dotted";
+	smartlinkcontainer.style.border = "1px solid #ccc";
+	smartlinkcontainer.style.borderRadius = "4px";
+	smartlinkcontainer.style.display = "inline-flex";
+	smartlinkcontainer.style.alignItems = "center";
+	smartlinkcontainer.style.padding = "0 4px";
+	smartlinkcontainer.style.margin = "0 2px";
+	smartlinkcontainer.style.gap = "4px";
+
+	return smartlinkcontainer;
+}
+
+const toKebabCase = (str: string) => {
+	return str.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+}
+
+export class SmartLinkWidget extends WidgetType {
 	private serviceId: string
 	private resourceTypeId: string
-	private techniqueId: string;
+	private value: string;
 	private settings: CatalystAnalysisSettings;
 
-	constructor(serviceId: string, resourceTypeId: string, techniqueId: string, settings: CatalystAnalysisSettings) {
+	constructor(serviceId: string, resourceTypeId: string, value: string, settings: CatalystAnalysisSettings) {
 		super();
 
 		this.serviceId = serviceId;
 		this.resourceTypeId = resourceTypeId;
-		this.techniqueId = techniqueId;
+		this.value = value;
 		this.settings = settings;
 	}
 
 	toDOM(view: EditorView): HTMLElement {
-		const span = document.createElement("span");
-		span.style.cursor = "help";
-		span.innerText = `${this.techniqueId}`; // Display the technique ID
-		span.style.textDecoration = "underline";
-		span.style.textDecorationStyle = "dotted";
+		const smartlink = slc();
 
-		setTooltip(span, "Loading details...");
+		if (linkRegex.test(this.value)) {
+			const link = document.createElement("a");
+			link.href = this.value;
+			link.innerText = this.value;
+			link.target = "_blank";
+			smartlink.appendChild(link);
+		} else {
+			const text = document.createElement("span");
+			text.innerText = this.value;
+			smartlink.appendChild(text);
+		}
+		
+		setTooltip(smartlink, "Loading details...");
 
 		// Fetch the data asynchronously
-		requestUrl(`${this.settings.apiUrl}/enrich/${this.serviceId}/${this.resourceTypeId}?value=${this.techniqueId}`)
+		requestUrl(`${this.settings.apiUrl}/enrich/${this.serviceId}/${this.resourceTypeId}?value=${this.value}`)
 			.then(data => {
-				setTooltip(span, `**${data.json.name}:**\n${data.json.description}`);
+				smartlink.innerHTML = "";
+
+				const icon = getIcon(toKebabCase(data.json.icon));
+				
+				if (icon) {
+					smartlink.appendChild(icon);
+				}
+
+				if (linkRegex.test(this.value)) {
+					const link = document.createElement("a");
+					link.href = this.value;
+					link.innerText = data.json.name;
+					link.target = "_blank";
+					smartlink.appendChild(link);
+				} else {
+					const text = document.createElement("span");
+					text.innerText = data.json.name;
+					smartlink.appendChild(text);
+				}
+
+				setTooltip(smartlink, `${data.json.description}`);
+
+				let statusAttribute = null;
+				for (const attribute of data.json.attributes) {
+					if (attribute.id === 'status') {
+					  statusAttribute = attribute;
+					  break;
+					}
+				}
+
+				if (statusAttribute) {
+					const icon = getIcon(toKebabCase(statusAttribute.icon));
+				
+					const status = document.createElement("span");
+					status.style.display = "inline-flex";
+					status.style.alignItems = "center";
+					status.style.padding = "0 4px";
+					status.style.gap = "4px";
+					status.style.background = "#f0f0f0";
+
+					if (icon) {
+						status.appendChild(icon);
+					}
+
+					status.appendChild(document.createTextNode(statusAttribute.value));
+
+					smartlink.style.paddingRight = "0";
+					smartlink.appendChild(status);
+				}
 			})
 			.catch(error => {
-				setTooltip(span, `Failed to load details: ${error.message}`);
+				setTooltip(smartlink, `Failed to load details: ${error.message}`);
 			});
 
-		return span;
+		return smartlink;
 	}
 }
 
@@ -148,7 +225,7 @@ function buildDecorations(view: EditorView, settings: CatalystAnalysisSettings, 
 			matchFrom,
 			matchTo,
 			Decoration.replace({
-				widget: new MitreAttackWidget(service.id, resourceType.id, match[0], settings),
+				widget: new SmartLinkWidget(service.id, resourceType.id, match[0], settings),
 			})
 		);
 	}
