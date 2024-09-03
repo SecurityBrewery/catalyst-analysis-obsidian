@@ -1,14 +1,14 @@
 import { App, Plugin, PluginSettingTab, Setting, setTooltip, requestUrl } from 'obsidian';
 import {
 	Decoration,
-	DecorationSet,
+	type DecorationSet,
 	ViewPlugin,
 	ViewUpdate, EditorView, WidgetType
 } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
+import { VIEW_TYPE_EXAMPLE, SmartLinkView } from "./SmartLink";
 
-
-interface CatalystAnalysisSettings {
+export interface CatalystAnalysisSettings {
 	apiUrl: string;
 }
 
@@ -22,6 +22,8 @@ export default class CatalystAnalysisPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		this.registerView(VIEW_TYPE_EXAMPLE, (leaf) => new SmartLinkView(leaf));
+
 		requestUrl(`${this.settings.apiUrl}/services`)
 			.then(data => {
 				console.log(data);
@@ -32,6 +34,10 @@ export default class CatalystAnalysisPlugin extends Plugin {
 			});
 
 		this.addSettingTab(new CatalystAnalysisSettingTab(this.app, this));
+
+		this.addRibbonIcon("dice", "Activate view", () => {
+			this.activateView();
+		});
 	}
 
 	onunload() { }
@@ -42,6 +48,19 @@ export default class CatalystAnalysisPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	async activateView() {
+		this.app.workspace.detachLeavesOfType(VIEW_TYPE_EXAMPLE);
+
+		await this.app.workspace.getRightLeaf(false).setViewState({
+			type: VIEW_TYPE_EXAMPLE,
+			active: true,
+		});
+
+		this.app.workspace.revealLeaf(
+			this.app.workspace.getLeavesOfType(VIEW_TYPE_EXAMPLE)[0],
+		);
 	}
 }
 
